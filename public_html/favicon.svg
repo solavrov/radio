@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+  viewBox="0 0 512 512"
+  width="512" height="512"
+  preserveAspectRatio="xMidYMid meet"
+  shape-rendering="geometricPrecision">
+  <!-- Небо -->
+  <rect x="0" y="0" width="512" height="512" fill="#e60073"/>
+  <!-- Солнце -->
+  <circle cx="256" cy="340" r="190" fill="#ffd966"/>
+  <!-- Песок (тёмнее) -->
+  <rect x="0" y="400" width="512" height="112" fill="#c2a146"/>
+</svg>

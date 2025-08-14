@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Sunset Beach Radio</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <link href="https://fonts.googleapis.com/css2?family=Pacifico&display=swap" rel="stylesheet">
+    <style>
+      :root { color-scheme: light; }
+      html, body { height: 100%; }
+      body {
+        margin: 0;
+        background: #bfe8ff;
+        color: #333;
+        font: 500 16px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+        display: grid;
+        place-items: center;
+        position: relative;
+        -webkit-tap-highlight-color: transparent;
+      }
+      .scene {
+        position: relative;
+        width: 90vmin;
+        height: 90vmin;
+        max-width: 96vw;
+        max-height: 96vh;
+      }
+      #viz {
+        width: 100%;
+        height: 100%;
+        display: block;
+        background: #bfe8ff;
+        border-radius: 50%;
+      }
+
+      /* ——— Кнопка listen ——— */
+      #radioButton {
+        position: absolute;
+        inset: 50% auto auto 50%;
+        transform: translate(-50%, -50%);
+        width: 120px;
+        height: 120px;
+        border-radius: 50%;
+        border: none;
+        background: linear-gradient(180deg,#f5deb3,#e0c068);
+        box-shadow: 0 6px 20px rgba(0,0,0,.25);
+        color: #5b4b2a;
+        font-family: "Pacifico", cursive;
+        font-size: 22px;
+        cursor: pointer;
+
+        transition: transform .12s ease, filter .2s ease, box-shadow .2s ease;
+
+        -webkit-tap-highlight-color: transparent;
+        outline: none;
+        user-select: none;
+        touch-action: manipulation;
+
+        position: absolute;
+        overflow: hidden;
+        isolation: isolate;
+      }
+      #radioButton:hover { filter: brightness(1.06); }
+      #radioButton:active { transform: translate(-50%, -50%) scale(.96); }
+
+      #radioButton:focus { outline: none; }
+      #radioButton:focus-visible {
+        box-shadow:
+          0 0 0 4px rgba(255,255,255,.9),
+          0 6px 20px rgba(0,0,0,.25);
+      }
+
+      /* Ripple элемент */
+      .ripple {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%,-50%) scale(0);
+        border-radius: 50%;
+        background: rgba(255,255,255,.55);
+        pointer-events: none;
+        filter: blur(0.3px);
+        animation: ripple .6s ease-out forwards;
+        mix-blend-mode: screen;
+      }
+      @keyframes ripple { to { transform: translate(-50%,-50%) scale(2.2); opacity: 0; } }
+
+      @media (prefers-reduced-motion: reduce) {
+        #radioButton { transition: none; }
+        .ripple { animation: none; opacity: 0; }
+      }
+
+      .title-top {
+        position: absolute;
+        top: 10px;
+        left: 50%;
+        transform: translateX(-50%);
+        font-weight: 700;
+        font-size: 30px;
+        pointer-events: none;
+        user-select: none;
+        font-family: "Pacifico", cursive;
+        display: flex;
+        gap: 8px;
+        text-shadow:
+            -1px -1px 0 #fff,
+             1px -1px 0 #fff,
+            -1px  1px 0 #fff,
+             1px  1px 0 #fff;
+      }
+      .title-top .sunset { color: #e60073; }
+      .title-top .beach { color: #e0c068; }
+      .title-top .radio { color: #ff7b00; }
+
+      .footer-text {
+        position: absolute;
+        bottom: 10px;
+        left: 50%;
+        transform: translateX(-50%);
+        font-family: "Pacifico", cursive;
+        font-size: 20px;
+        color: #f4c27a;
+        text-align: center;
+        pointer-events: none;
+        user-select: none;
+        text-shadow:
+          -1px -1px 0 #fff,
+           1px -1px 0 #fff,
+          -1px  1px 0 #fff,
+           1px  1px 0 #fff;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="scene">
+      <div class="title-top">
+        <span class="sunset">Sunset</span>
+        <span class="beach">Beach</span>
+        <span class="radio">Radio</span>
+      </div>
+      <canvas id="viz"></canvas>
+      <button id="radioButton">listen</button>
+    </div>
+
+    <div class="footer-text">to my wife Lena</div>
+
+    <script type="module">
+      // ————— CONFIG —————
+      const CONFIG = {
+        firebase: {
+          apiKey: "AIzaSyB7C7FJiBSYGYeUNeFMLBEw7bPDVeCBcMc",
+          authDomain: "sunset-radio.firebaseapp.com",
+          projectId: "sunset-radio",
+          storageBucket: "sunset-radio.firebasestorage.app",
+          messagingSenderId: "906706265854",
+          appId: "1:906706265854:web:6443f9ef3ceafd1ec9a7af"
+        },
+        audioPath: "california.mp3", // путь в бакете
+        loopAudio: true,             // бесконечный цикл включён
+        labels: { listen: "listen", mute: "mute" },
+        refStartIso: "2013-08-15T00:00:00+02:00", // глобальная синхронизация
+
+        dprMin: 1, binsToUse: 96, baseCount: 64, lowPortion: 0.35,
+        baseBoxBlurPasses: 2, smoothingRadius: 2, smoothingPasses: 2,
+        amplitudePow: 0.9, barMaxLenFactor: 0.22, barLenAdd: 2, barLenScale: 1.4,
+        lineWidthMin: 2, lineWidthMax: 6, lineWidthFactor: 0.08, gap: 6,
+        barColors: ["#FFD27F", "#FFE066", "#FF7B00", "#FF4F70", "#FF1A1A"],
+        floorBaseMin: 0.06, floorBaseMax: 0.14,
+        analyser: { fftSize: 1024, smoothingTimeConstant: 0.85 },
+        idle: { level: 0.5, waveAmp: 0.10, waves: 5, jitter: 0.03, energy: 0.25 }
+      };
+
+      // ————— Imports —————
+      import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+      import { getStorage, ref, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-storage.js";
+
+      // ————— Firebase setup —————
+      const app = initializeApp(CONFIG.firebase);
+      const storage = getStorage(app, "gs://sunset-radio.firebasestorage.app");
+
+      // ————— Audio element —————
+      const audio = document.createElement("audio");
+      audio.crossOrigin = "anonymous";
+      audio.controls = true;
+      audio.loop = false; // контроль цикла берём на себя (надёжнее на всех браузерах)
+
+      // ↓↓↓ Единственное изменение: убран top-level await — неблокирующая загрузка URL ↓↓↓
+      getDownloadURL(ref(storage, CONFIG.audioPath))
+        .then((url) => {
+          audio.src = url;
+          audio.currentTime = 0;
+        })
+        .catch((err) => {
+          console.error("Ошибка загрузки аудио:", err);
+        });
+      // ↑↑↑ Единственное изменение ↑↑↑
+
+      // ————— DOM refs —————
+      const btn = document.getElementById("radioButton");
+      const canvas = document.getElementById("viz");
+      const ctx = canvas.getContext("2d");
+
+      // ——— Ripple ———
+      btn.addEventListener("pointerdown", (e) => {
+        const rect = btn.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        const d = Math.max(rect.width, rect.height) * 1.4;
+
+        const s = document.createElement("span");
+        s.className = "ripple";
+        s.style.width = s.style.height = d + "px";
+        s.style.left = x + "px";
+        s.style.top = y + "px";
+
+        btn.appendChild(s);
+        s.addEventListener("animationend", () => s.remove(), { once: true });
+      }, { passive: true });
+
+      let audioCtx = null;
+      let analyser = null;
+      let dataArray = null;
+      let rafId = null;
+
+      function fitCanvasToSize() {
+        const dpr = Math.max(CONFIG.dprMin, window.devicePixelRatio || 1);
+        const rect = canvas.getBoundingClientRect();
+        canvas.width  = Math.round(rect.width  * dpr);
+        canvas.height = Math.round(rect.height * dpr);
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      }
+      fitCanvasToSize();
+
+      let resizeQueued = false;
+      addEventListener("resize", () => {
+        if (resizeQueued) return;
+        resizeQueued = true;
+        requestAnimationFrame(() => {
+          resizeQueued = false;
+          fitCanvasToSize();
+          if (btn.textContent === CONFIG.labels.listen) drawIdle();
+        });
+      }, { passive: true });
+
+      function createAudioGraph() {
+        if (audioCtx) return;
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const source = audioCtx.createMediaElementSource(audio);
+        analyser = audioCtx.createAnalyser();
+        analyser.fftSize = CONFIG.analyser.fftSize;
+        analyser.smoothingTimeConstant = CONFIG.analyser.smoothingTimeConstant;
+        dataArray = new Uint8Array(analyser.frequencyBinCount);
+        source.connect(analyser);
+        analyser.connect(audioCtx.destination);
+
+        // авто-resume при смене состояния (актуально для Safari/iOS)
+        audioCtx.onstatechange = async () => {
+          if (audioCtx.state !== "running" && isPlaying()) {
+            try { await audioCtx.resume(); } catch {}
+          }
+        };
+      }
+
+      const isPlaying = () => btn.textContent === CONFIG.labels.mute;
+
+      // ——— Глобальная синхронизация ———
+      function computeGlobalOffsetSeconds(durationSec) {
+        const refMs = Date.parse(CONFIG.refStartIso);
+        const nowMs = Date.now();
+        const elapsedSec = (nowMs - refMs) / 1000;
+        const mod = ((elapsedSec % durationSec) + durationSec) % durationSec;
+        return mod;
+      }
+
+      async function waitForMetadata() {
+        if (isFinite(audio.duration) && audio.duration > 0) return;
+        await new Promise(resolve => {
+          if (audio.readyState >= 1) return resolve();
+          audio.addEventListener("loadedmetadata", resolve, { once: true });
+        });
+      }
+
+      async function jumpToGlobalPosition() {
+        await waitForMetadata();
+        if (isFinite(audio.duration) && audio.duration > 0) {
+          audio.currentTime = computeGlobalOffsetSeconds(audio.duration);
+        }
+      }
+
+      // Подстройка к мировой позиции после «разморозки»/возврата
+      async function ensurePlayingIfShould() {
+        if (!isPlaying()) return;                 // пользователь поставил на паузу
+        if (!audioCtx) createAudioGraph();
+
+        try { if (audioCtx.state !== "running") await audioCtx.resume(); } catch {}
+
+        await waitForMetadata();
+
+        if (CONFIG.loopAudio && isFinite(audio.duration) && audio.duration > 0) {
+          const desired = computeGlobalOffsetSeconds(audio.duration);
+          const drift = Math.abs((audio.currentTime || 0) - desired);
+          if (drift > 0.75) {                    // избегаем лишних скачков
+            audio.currentTime = desired;
+          }
+        }
+
+        if (audio.paused || audio.ended) {
+          try { await audio.play(); } catch {}
+        }
+        if (!rafId) drawRadial();
+      }
+
+      function samplePeriodic(arr, t) {
+        const n = arr.length;
+        const x = t * n;
+        const i0 = Math.floor(x) % n;
+        const i1 = (i0 + 1) % n;
+        const f = x - Math.floor(x);
+        return arr[i0] * (1 - f) + arr[i1] * f;
+      }
+
+      function circularSmooth(values, radius = CONFIG.smoothingRadius, passes = CONFIG.smoothingPasses) {
+        const n = values.length;
+        let out = values.slice();
+        for (let p = 0; p < passes; p++) {
+          const tmp = new Array(n);
+          for (let i = 0; i < n; i++) {
+            let sum = 0, cnt = 0;
+            for (let r = -radius; r <= radius; r++) {
+              const j = (i + r + n) % n;
+              sum += out[j];
+              cnt++;
+            }
+            tmp[i] = sum / cnt;
+          }
+          out = tmp;
+        }
+        return out;
+      }
+
+      function renderBars(values, energy) {
+        const w = canvas.width / (window.devicePixelRatio || 1);
+        const h = canvas.height / (window.devicePixelRatio || 1);
+        ctx.clearRect(0, 0, w, h);
+
+        const cx = w / 2;
+        const cy = h / 2;
+        const smoothed = circularSmooth(values);
+
+        const buttonRadius = btn.offsetWidth / 2;
+        const radius = buttonRadius + CONFIG.gap;
+        const unit = Math.min(w, h);
+        const floorBase = CONFIG.floorBaseMin + energy * (CONFIG.floorBaseMax - CONFIG.floorBaseMin);
+
+        ctx.lineCap = "round";
+        const twoPi = Math.PI * 2;
+
+        for (let i = 0; i < CONFIG.binsToUse; i++) {
+          const vNorm = smoothed[i] / 255;
+          const eased = Math.max(floorBase, Math.pow(vNorm, CONFIG.amplitudePow));
+          const barLen = (eased * unit * CONFIG.barMaxLenFactor + CONFIG.barLenAdd) * CONFIG.barLenScale;
+
+          const angle = (i / CONFIG.binsToUse) * twoPi - Math.PI / 2;
+          const x0 = cx + Math.cos(angle) * radius;
+          const y0 = cy + Math.sin(angle) * radius;
+          const x1 = cx + Math.cos(angle) * (radius + barLen);
+          const y1 = cy + Math.sin(angle) * (radius + barLen);
+
+          const grad = ctx.createLinearGradient(x0, y0, x1, y1);
+          const stops = CONFIG.barColors.length - 1;
+          CONFIG.barColors.forEach((c, idx) => grad.addColorStop(idx / stops, c));
+
+          ctx.strokeStyle = grad;
+          ctx.lineWidth = Math.max(CONFIG.lineWidthMin, Math.min(CONFIG.lineWidthMax, barLen * CONFIG.lineWidthFactor));
+
+          ctx.beginPath();
+          ctx.moveTo(x0, y0);
+          ctx.lineTo(x1, y1);
+          ctx.stroke();
+        }
+      }
+
+      function drawIdle() {
+        const arr = new Array(CONFIG.binsToUse);
+        for (let i = 0; i < CONFIG.binsToUse; i++) {
+          const t = i / CONFIG.binsToUse;
+          const wave = Math.sin(2 * Math.PI * CONFIG.idle.waves * t);
+          const j = Math.sin(i * 12.9898) * 43758.5453;
+          const jitter = (j - Math.floor(j)) * 2 - 1;
+          const v = CONFIG.idle.level + CONFIG.idle.waveAmp * wave + CONFIG.idle.jitter * jitter;
+          arr[i] = Math.max(0, Math.min(255, Math.round(v * 255)));
+        }
+        renderBars(arr, CONFIG.idle.energy);
+      }
+
+      function drawRadial() {
+        if (!analyser) return;
+        analyser.getByteFrequencyData(dataArray);
+
+        const sourceEnd = Math.max(8, Math.floor(dataArray.length * CONFIG.lowPortion));
+        const stepSrc = Math.max(1, Math.floor(sourceEnd / CONFIG.baseCount));
+
+        const base = new Array(CONFIG.baseCount);
+        for (let i = 0; i < CONFIG.baseCount; i++) {
+          base[i] = dataArray[Math.min(i * stepSrc, sourceEnd - 1)];
+        }
+
+        for (let p = 0; p < CONFIG.baseBoxBlurPasses; p++) {
+          for (let i = 1; i < base.length - 1; i++) {
+            base[i] = (base[i - 1] + base[i] + base[i + 1]) / 3;
+          }
+        }
+
+        const avg = base.reduce((a, b) => a + b, 0) / base.length;
+        const energy = avg / 255;
+
+        const values = new Array(CONFIG.binsToUse);
+        for (let i = 0; i < CONFIG.binsToUse; i++) {
+          const t = i / CONFIG.binsToUse;
+          values[i] = samplePeriodic(base, t);
+        }
+
+        renderBars(values, energy);
+        rafId = requestAnimationFrame(drawRadial);
+      }
+
+      async function startStop() {
+        if (!audioCtx) createAudioGraph();
+
+        if (btn.textContent === CONFIG.labels.listen) {
+          // запуск всегда с глобально синхронизированной позиции
+          await jumpToGlobalPosition();
+          if (audioCtx.state === "suspended") { try { await audioCtx.resume(); } catch {} }
+          try { await audio.play(); } catch {}
+          btn.textContent = CONFIG.labels.mute;
+          if (rafId) cancelAnimationFrame(rafId);
+          drawRadial();
+        } else {
+          try { await audio.pause(); } catch {}
+          btn.textContent = CONFIG.labels.listen;
+          if (rafId) cancelAnimationFrame(rafId);
+          drawIdle();
+        }
+      }
+
+      btn.addEventListener("click", startStop);
+
+      // ——— Всегда-глобальная синхронизация при автоповторе ———
+      audio.addEventListener("ended", async () => {
+        if (CONFIG.loopAudio) {
+          try {
+            await waitForMetadata();
+            const pos = computeGlobalOffsetSeconds(audio.duration);
+            audio.currentTime = pos;
+            await audio.play();              // важно для Safari/iOS
+            if (!rafId) drawRadial();
+            // Кнопку не трогаем: остаётся "mute"
+          } catch (err) {
+            console.error("Ошибка автоповтора:", err);
+          }
+        } else {
+          btn.textContent = CONFIG.labels.listen;
+          if (rafId) cancelAnimationFrame(rafId);
+          drawIdle();
+        }
+      });
+
+      // ——— Anti-freeze / auto-resume + пересинхронизация по возврату ———
+      document.addEventListener("visibilitychange", () => {
+        if (!document.hidden) ensurePlayingIfShould();
+      });
+      window.addEventListener("pageshow", (e) => {
+        if (e.persisted || true) ensurePlayingIfShould();
+      });
+
+      drawIdle();
+    </script>
+  </body>
+</html>
