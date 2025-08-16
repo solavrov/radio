@@ -33,7 +33,6 @@
         background: #bfe8ff;
         border-radius: 50%;
       }
-
       /* ——— Кнопка listen ——— */
       #radioButton {
         position: absolute;
@@ -49,28 +48,22 @@
         font-family: "Pacifico", cursive;
         font-size: 22px;
         cursor: pointer;
-
         transition: transform .12s ease, filter .2s ease, box-shadow .2s ease;
-
         -webkit-tap-highlight-color: transparent;
         outline: none;
         user-select: none;
         touch-action: manipulation;
-
-        position: absolute;
         overflow: hidden;
         isolation: isolate;
       }
       #radioButton:hover { filter: brightness(1.06); }
       #radioButton:active { transform: translate(-50%, -50%) scale(.96); }
-
       #radioButton:focus { outline: none; }
       #radioButton:focus-visible {
         box-shadow:
           0 0 0 4px rgba(255,255,255,.9),
           0 6px 20px rgba(0,0,0,.25);
       }
-
       /* Ripple элемент */
       .ripple {
         position: absolute;
@@ -85,12 +78,10 @@
         mix-blend-mode: screen;
       }
       @keyframes ripple { to { transform: translate(-50%,-50%) scale(2.2); opacity: 0; } }
-
       @media (prefers-reduced-motion: reduce) {
         #radioButton { transition: none; }
         .ripple { animation: none; opacity: 0; }
       }
-
       .title-top {
         position: absolute;
         top: 10px;
@@ -112,7 +103,6 @@
       .title-top .sunset { color: #e60073; }
       .title-top .beach { color: #e0c068; }
       .title-top .radio { color: #ff7b00; }
-
       .footer-text {
         position: absolute;
         bottom: 10px;
@@ -126,7 +116,7 @@
         user-select: none;
         text-shadow:
           -1px -1px 0 #fff,
-           1px -1px 0 #fff,
+           1px  1px 0 #fff,
           -1px  1px 0 #fff,
            1px  1px 0 #fff;
       }
@@ -142,7 +132,6 @@
       <canvas id="viz"></canvas>
       <button id="radioButton">listen</button>
     </div>
-
     <div class="footer-text">to my wife Lena</div>
 
     <script type="module">
@@ -156,10 +145,10 @@
           messagingSenderId: "906706265854",
           appId: "1:906706265854:web:6443f9ef3ceafd1ec9a7af"
         },
-        audioPath: "california.mp3", // путь в бакете
-        loopAudio: true,             // бесконечный цикл включён
-        labels: { listen: "listen", mute: "mute" },
-        refStartIso: "2013-08-15T00:00:00+02:00", // глобальная синхронизация
+        audioPath: "california.mp3",
+        loopAudio: true,
+        labels: { listen: "listen", connecting: "connecting…", mute: "mute" },
+        refStartIso: "2013-08-15T00:00:00+02:00",
 
         dprMin: 1, binsToUse: 96, baseCount: 64, lowPortion: 0.35,
         baseBoxBlurPasses: 2, smoothingRadius: 2, smoothingPasses: 2,
@@ -183,18 +172,22 @@
       const audio = document.createElement("audio");
       audio.crossOrigin = "anonymous";
       audio.controls = true;
-      audio.loop = false; // контроль цикла берём на себя (надёжнее на всех браузерах)
+      audio.loop = false;
 
-      // ↓↓↓ Единственное изменение: убран top-level await — неблокирующая загрузка URL ↓↓↓
+      // ——— Ждём, пока будет назначен src (решает гонку запуска) ———
+      let urlReadyResolve, urlReadyReject;
+      const urlReady = new Promise((res, rej) => { urlReadyResolve = res; urlReadyReject = rej; });
+
       getDownloadURL(ref(storage, CONFIG.audioPath))
         .then((url) => {
           audio.src = url;
           audio.currentTime = 0;
+          urlReadyResolve();               // src готов — можно стартовать
         })
         .catch((err) => {
           console.error("Ошибка загрузки аудио:", err);
+          urlReadyReject(err);
         });
-      // ↑↑↑ Единственное изменение ↑↑↑
 
       // ————— DOM refs —————
       const btn = document.getElementById("radioButton");
@@ -207,13 +200,11 @@
         const x = e.clientX - rect.left;
         const y = e.clientY - rect.top;
         const d = Math.max(rect.width, rect.height) * 1.4;
-
         const s = document.createElement("span");
         s.className = "ripple";
         s.style.width = s.style.height = d + "px";
         s.style.left = x + "px";
         s.style.top = y + "px";
-
         btn.appendChild(s);
         s.addEventListener("animationend", () => s.remove(), { once: true });
       }, { passive: true });
@@ -254,7 +245,6 @@
         source.connect(analyser);
         analyser.connect(audioCtx.destination);
 
-        // авто-resume при смене состояния (актуально для Safari/iOS)
         audioCtx.onstatechange = async () => {
           if (audioCtx.state !== "running" && isPlaying()) {
             try { await audioCtx.resume(); } catch {}
@@ -288,23 +278,16 @@
         }
       }
 
-      // Подстройка к мировой позиции после «разморозки»/возврата
       async function ensurePlayingIfShould() {
-        if (!isPlaying()) return;                 // пользователь поставил на паузу
+        if (!isPlaying()) return;
         if (!audioCtx) createAudioGraph();
-
         try { if (audioCtx.state !== "running") await audioCtx.resume(); } catch {}
-
         await waitForMetadata();
-
         if (CONFIG.loopAudio && isFinite(audio.duration) && audio.duration > 0) {
           const desired = computeGlobalOffsetSeconds(audio.duration);
           const drift = Math.abs((audio.currentTime || 0) - desired);
-          if (drift > 0.75) {                    // избегаем лишних скачков
-            audio.currentTime = desired;
-          }
+          if (drift > 0.75) audio.currentTime = desired;
         }
-
         if (audio.paused || audio.ended) {
           try { await audio.play(); } catch {}
         }
@@ -429,13 +412,28 @@
         if (!audioCtx) createAudioGraph();
 
         if (btn.textContent === CONFIG.labels.listen) {
-          // запуск всегда с глобально синхронизированной позиции
-          await jumpToGlobalPosition();
-          if (audioCtx.state === "suspended") { try { await audioCtx.resume(); } catch {} }
-          try { await audio.play(); } catch {}
-          btn.textContent = CONFIG.labels.mute;
-          if (rafId) cancelAnimationFrame(rafId);
-          drawRadial();
+          btn.textContent = CONFIG.labels.connecting;
+
+          const onPlaying = () => {
+            btn.textContent = CONFIG.labels.mute;
+            if (rafId) cancelAnimationFrame(rafId);
+            drawRadial();
+          };
+          audio.addEventListener("playing", onPlaying, { once: true });
+
+          try {
+            // ждём src до любых манипуляций с метаданными
+            await urlReady;
+            await jumpToGlobalPosition();
+            if (audioCtx.state === "suspended") { try { await audioCtx.resume(); } catch {} }
+            await audio.play();
+          } catch (err) {
+            audio.removeEventListener("playing", onPlaying);
+            btn.textContent = CONFIG.labels.listen;
+            if (rafId) cancelAnimationFrame(rafId);
+            drawIdle();
+            console.error("Не удалось стартовать аудио:", err);
+          }
         } else {
           try { await audio.pause(); } catch {}
           btn.textContent = CONFIG.labels.listen;
@@ -453,9 +451,8 @@
             await waitForMetadata();
             const pos = computeGlobalOffsetSeconds(audio.duration);
             audio.currentTime = pos;
-            await audio.play();              // важно для Safari/iOS
+            await audio.play();
             if (!rafId) drawRadial();
-            // Кнопку не трогаем: остаётся "mute"
           } catch (err) {
             console.error("Ошибка автоповтора:", err);
           }
